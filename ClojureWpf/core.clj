@@ -8,21 +8,19 @@
    [System.Windows Application Window EventManager DependencyObject DependencyProperty
     FrameworkPropertyMetadata LogicalTreeHelper]
    [System.Windows.Data BindingBase Binding BindingOperations]
-   [System.Windows.Input ICommand CommandBinding ExecutedRoutedEventHandler
-    CanExecuteRoutedEventHandler]
+   [System.Windows.Input CommandBinding ExecutedRoutedEventHandler CanExecuteRoutedEventHandler]
    [System.Reflection BindingFlags PropertyInfo MethodInfo EventInfo]
    [System.ComponentModel PropertyDescriptor MemberDescriptor TypeConverterAttribute TypeConverter]
    [System.Xaml XamlSchemaContext XamlType]
    [System.Xaml.Schema XamlTypeName]
    [System.Collections ICollection]
    [System.IO File])
-  (:require [clojure.string :as str]
-            [clojure.tools.logging :as log]))
+  (:require [clojure.string :as str]))
 
 (def ^:dynamic *cur* nil)
 
 (def ^:private default-xaml-ns {:ns "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                          :context (XamlReader/GetWpfSchemaContext)})
+                      :context (XamlReader/GetWpfSchemaContext)})
 
 (def ^:private default-xaml-ns-x {:ns "http://schemas.microsoft.com/winfx/2006/xaml"
                         :context (XamlReader/GetWpfSchemaContext)})
@@ -99,7 +97,6 @@
   (let [ex (.get_Exception args)]
     (reset! *dispatcher-exception ex)
     (println "Dispatcher Exception: " ex)
-    (log/error ex "Dispatcher Exception")
     (.set_Handled args true)))
 
 (defn separate-threaded-window
@@ -116,7 +113,6 @@
                                     (.Show @window)
                                     (.add_UnhandledException Dispatcher/CurrentDispatcher
                                                              (gen-delegate DispatcherUnhandledExceptionEventHandler [s e]
-                                                                        (log/trace "trying to dispatch exception" s e)
                                                                         (exception-handler s e)))
                                     (.Set waitHandle)
                                     (Dispatcher/Run)))
@@ -187,12 +183,12 @@
 (defn -= [target event-key handler] (event-helper target event-key handler "remove_"))
 
 (defn command-binding
-  ([^ICommand command exec-fn can-exec-fn]
+  ([command exec-fn can-exec-fn]
      (CommandBinding. command
                       (gen-delegate ExecutedRoutedEventHandler [s e] (exec-fn s e))
                       (when can-exec-fn
                         (gen-delegate CanExecuteRoutedEventHandler [s e] (can-exec-fn s e)))))
-  ([^ICommand command exec-fn]
+  ([command exec-fn]
      (command-binding command exec-fn nil)))
 
 (defn get-static-field [type fname]
@@ -576,17 +572,14 @@
     (when refresh (set-sandbox-refresh sandbox refresh))
     sandbox))
 
-(defn dev-init [refresh]
-  (comment (def sand (dev-sandbox :exception-handler
-                                  (fn [s e]
-                                    (log/error (.Exception e) "Unhandled dispatcher exception")
-                                    (println (.Exception e))
-                                    (.set_Handled e true)))))
-  (def sand (dev-sandbox))
-  (def wind (:window sand))
-  (at wind :Height 768.0 :Width 1024.0)
-  (set-sandbox-refresh sand refresh))
-
-(defn get-app-main-window []
-  (when-let [app Application/Current]
-    (doat app (.MainWindow *cur*))))
+(defn dev-init [refresh & opts]
+  (let [{:keys [window-func exception-handler]} opts
+        ex-handler (or exception-handler
+                       (fn [s e]
+                         (println (.Exception e))
+                         (.set_Handled e true)))]
+    (def sand (dev-sandbox :exception-handler ex-handler))
+    (def wind (:window sand))
+    (at wind :Height 768.0 :Width 1024.0)
+    (set-sandbox-refresh sand refresh)
+    (when window-func (window-func wind))))
